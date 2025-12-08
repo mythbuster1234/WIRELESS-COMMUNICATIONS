@@ -1,0 +1,788 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>OMACS Codes — Password Protected</title>
+
+  <!-- Tailwind (optional, from CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Prism for syntax highlighting (CDN) -->
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism.min.css" rel="stylesheet" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
+
+  <style>
+    /* Visual tweaks */
+    body { background:#f8fafc; color:#0f172a; font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial; }
+    header { max-width:1100px; margin:0 auto; padding:28px 20px 0; }
+    main { max-width:1100px; margin:0 auto; padding:16px 20px 60px; }
+    .card { background:white; border-radius:12px; padding:18px; box-shadow:0 6px 18px rgba(15,23,42,0.06); }
+    pre[class*="language-"] { border-radius:8px; padding:14px; overflow:auto; background:#f6f8fa; white-space:pre-wrap; }
+    .btn { padding:8px 12px; border-radius:8px; cursor:pointer; }
+    .btn-emerald { background:#059669; color:white; }
+    .btn-slate { background:#e6eef6; color:#0f172a; }
+    .tiny { font-size:13px; color:#475569; }
+    .hidden { display:none; }
+    .pw-modal { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(2,6,23,0.6); z-index:9999; }
+    .pw-box { background:white; padding:20px; border-radius:12px; width:92%; max-width:520px; box-shadow:0 30px 80px rgba(2,6,23,0.4); }
+    footer { max-width:1100px; margin:40px auto; padding:0 20px 60px; color:#475569; font-size:13px; }
+    .download-all { margin-left:auto; }
+    @media (max-width:640px){ .flex-row{ flex-direction:column } }
+  </style>
+</head>
+<body>
+
+  <!-- Password modal -->
+  <div id="pw-modal" class="pw-modal">
+    <div class="pw-box">
+      <h2 style="margin:0 0 8px; font-size:20px">Enter password to access OMACS codes</h2>
+      <p class="tiny" style="margin:0 0 12px">This is client-side locking — good for demos. Password is stored only inside this file. Change it in the JS below if you need a different password.</p>
+      <input id="pw-input" type="password" placeholder="Password" style="width:100%; padding:10px; border-radius:8px; border:1px solid #e2e8f0; margin-bottom:12px" />
+      <div style="display:flex; gap:8px; justify-content:flex-end">
+        <button id="pw-submit" class="btn btn-emerald">Unlock</button>
+        <button id="pw-cancel" class="btn btn-slate">Cancel</button>
+      </div>
+      <p id="pw-msg" class="tiny" style="color:#dc2626; margin-top:10px; display:none"></p>
+    </div>
+  </div>
+
+  <header>
+    <div style="display:flex; align-items:center; gap:16px; justify-content:space-between" class="flex-row">
+      <div>
+        <h1 style="margin:0; font-size:28px; font-weight:700">COPY KOTATAM CORRECT KAAD BRUH</h1>
+        <p class="tiny" style="margin:6px 0 0">Paina chepa gaa inka close cheyava puka website ni</p>
+      </div>
+      <div style="text-align:right">
+        <div class="tiny">Demo password: <code style="background:#f1f5f9;padding:4px 6px;border-radius:6px">123456789</code></div>
+        <div class="tiny" style="margin-top:6px">inka unava sarele kinda unay chusko koja naakodaka</strong> to your repo root.</div>
+      </div>
+    </div>
+  </header>
+
+  <main id="main" class="hidden">
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:14px" class="flex-row">
+      <button id="expand-all" class="btn btn-slate">Expand All</button>
+      <button id="collapse-all" class="btn btn-slate">Collapse All</button>
+      <button id="download-all" class="btn btn-emerald download-all">Download All (.py)</button>
+    </div>
+
+    <div id="cards" style="display:grid; gap:16px"></div>
+  </main>
+
+  <footer>
+    Client-side password lock — not suitable for high-security protection. For production, use server-side authentication. If you want a zip with separate .py files, say "create zip" and I will produce it.
+  </footer>
+
+  <script>
+  // ----------------- CONFIG: change password here -----------------
+  const PLAINTEXT_PASSWORD = "lanja";
+  // ----------------------------------------------------------------
+
+  // SHA-256 helper
+  async function sha256Hex(str) {
+    const enc = new TextEncoder();
+    const buf = enc.encode(str);
+    const hash = await crypto.subtle.digest('SHA-256', buf);
+    return Array.from(new Uint8Array(hash)).map(b=>b.toString(16).padStart(2,'0')).join('');
+  }
+
+  // Elements
+  const pwModal = document.getElementById('pw-modal');
+  const pwInput = document.getElementById('pw-input');
+  const pwSubmit = document.getElementById('pw-submit');
+  const pwCancel = document.getElementById('pw-cancel');
+  const pwMsg = document.getElementById('pw-msg');
+  const main = document.getElementById('main');
+
+  // precompute hash of configured password
+  let STORED_HASH = null;
+  sha256Hex(PLAINTEXT_PASSWORD).then(h => STORED_HASH = h);
+
+  async function checkPassword() {
+    const v = pwInput.value || "";
+    const h = await sha256Hex(v);
+    if (h === STORED_HASH) {
+      pwModal.style.display = 'none';
+      main.classList.remove('hidden');
+      Prism.highlightAll();
+    } else {
+      pwMsg.style.display = 'block';
+      pwMsg.textContent = 'Incorrect password — try again.';
+    }
+  }
+  pwSubmit.addEventListener('click', checkPassword);
+  pwInput.addEventListener('keydown', (e)=>{ if(e.key === 'Enter') checkPassword(); });
+  pwCancel.addEventListener('click', ()=>{ pwModal.style.display='none'; main.classList.remove('hidden'); });
+
+  // ---------- Experiments (1–11 from Word doc, 12 unchanged) ----------
+  const experiments = [
+    {
+      id: "exp1",
+      title: "Expt 1: Rayleigh Fading Channel",
+      filename: "expt1_rayleigh_fading.py",
+      code: `import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sb
+
+N = int(1e5)
+x = np.random.randn(N)
+y = np.random.randn(N)
+z = (x + 1j*y)/np.sqrt(2)
+A = np.abs(z)
+theta = np.angle(z)
+P = A**2
+
+plt.figure()
+sb.histplot(A, bins=70)
+plt.xlabel("x")
+plt.ylabel("Count")
+plt.title("Magnitude distribution")
+plt.grid(True, linewidth=0.6, alpha=0.7)
+plt.show()
+
+plt.figure()
+sb.histplot(theta, bins=60)
+plt.xlabel("x")
+plt.ylabel("Count")
+plt.title("Phase distribution")
+plt.grid(True)
+plt.show()
+
+plt.figure()
+sb.histplot(P, bins=60)
+plt.xlabel("x")
+plt.ylabel("Count")
+plt.title("Power distribution")
+plt.grid(True)
+plt.show()`
+    },
+    {
+      id: "exp2",
+      title: "Expt 2: Rician Fading Channel",
+      filename: "expt2_rician_fading.py",
+      code: `import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sb
+from scipy.special import i0
+
+N = int(1e5)
+K = 3
+
+x = np.random.randn(N) + np.sqrt(K/2)
+y = np.random.randn(N) + np.sqrt(K/2)
+w = (x + 1j*y) / np.sqrt(2)
+
+z = w * np.sqrt(1/(K+1))
+
+A = np.abs(z)
+
+x_vals = np.arange(0, 3, 0.05)
+
+I0 = i0(2 * x_vals * np.sqrt(K * (K+1)))
+
+f = 2 * x_vals * (K+1) * I0 * np.exp(-K - (K+1) * x_vals**2)
+
+plt.figure()
+plt.hist(A, bins=70, density=True, edgecolor="black", linewidth=0.4)
+plt.plot(x_vals, f)
+
+plt.xlabel("x")
+plt.ylabel("Count")
+plt.title("Magnitude Distribution (Rician Fading)")
+
+plt.grid(True)
+plt.legend()
+plt.show()`
+    },
+    {
+      id: "exp3",
+      title: "Expt 3: AWGN channel on transmitted symbol",
+      filename: "expt3_awgn_symbol.py",
+      code: `import numpy as np
+import matplotlib.pyplot as plt
+
+N = 500
+P_dB = 0
+EbN0_dB = 7
+M = 2
+
+p = 10**(P_dB/10)
+ebn0 = 10**(EbN0_dB/10)
+sigma = 1/np.sqrt(np.log2(M) * ebn0)
+
+b = np.random.randint(0, 2, N)
+sym = 2*b - 1
+
+n = (np.random.randn(N) + 1j*np.random.randn(N)) / np.sqrt(2)
+y = np.sqrt(p)*sym + sigma*n
+
+plt.figure()
+plt.scatter(y.real[b == 0], y.imag[b == 0], s=50, marker=".", label="Original Symbols",  color="blue")
+plt.scatter(y.real[b == 1], y.imag[b == 1], s=50, marker=".", label="Original Symbols",  color="orange")
+
+plt.xlabel("Real Part")
+plt.ylabel("Imaginary Part")
+plt.title("scatter plot for AWGN channel")
+plt.grid(True)
+plt.xlim(-3, 3)
+plt.ylim(-2, 2)
+plt.legend()
+plt.show()`
+    },
+    {
+      id: "exp4",
+      title: "Expt 4: Effect of Fading channel on Transmitted Symbol",
+      filename: "expt4_fading_symbol.py",
+      code: `import numpy as np
+import matplotlib.pyplot as plt
+from scipy.special import i0
+
+N = 500
+P_dB = 0
+EbN0_dB = 7
+M = 2
+
+p = 10**(P_dB/10)
+ebn0 = 10**(EbN0_dB/10)
+
+sigma = 1/np.sqrt(np.log2(M) * ebn0)
+
+b = np.random.randint(0, 2, N)
+s = 2*b - 1
+
+n = (np.random.randn(N) + 1j*np.random.randn(N)) / np.sqrt(2)
+h = (np.random.randn(N) + 1j*np.random.randn(N)) / np.sqrt(2)
+
+y = np.sqrt(p) * h * s + sigma * n
+y_eq = y / h
+
+plt.figure()
+plt.scatter(y.real[b == 0], y.imag[b == 0], s=50, marker='.', label="Original Symbols", color="blue")
+plt.scatter(y.real[b == 1], y.imag[b == 1], s=50, marker='.', label="Original Symbols", color="orange")
+
+plt.xlabel("Real Part")
+plt.ylabel("Imaginary Part")
+plt.title("Scatter plot for fading channel without equalization")
+plt.grid(True)
+plt.legend()
+plt.show()
+
+plt.figure()
+plt.scatter(y_eq.real[b==0], y_eq.imag[b==0], s=50, marker='.', label="Equalized Symbols", color="blue")
+plt.scatter(y_eq.real[b==1], y_eq.imag[b==1], s=50, marker='.', label="Equalized Symbols", color="orange")
+
+plt.xlabel("Real Part")
+plt.ylabel("Imaginary Part")
+plt.title("Scatter plot for fading channel with equalization")
+plt.grid(True)
+plt.legend()
+plt.show()`
+    },
+    {
+      id: "exp5",
+      title: "Expt 5: BER for AWGN channel: Single Carrier",
+      filename: "expt5_ber_awgn.py",
+      code: `import numpy as np
+import matplotlib.pyplot as plt
+
+N = int(1e4)
+M = 2
+BER = []
+
+EbN0_dB = np.arange(0, 13)
+
+for ebno in EbN0_dB:
+    EbN0_lin = 10**(ebno/10)
+    s = 1/np.sqrt(np.log2(M) * EbN0_lin)
+    error = 0
+
+    for j in range(N):
+        b = np.random.randint(0,2)
+        x = 2*b - 1
+        n = np.random.randn()
+        y = x + s*n
+
+        b_hat = 1 if y >= 0 else 0
+        berr = b ^ b_hat
+        error = error + berr
+
+    ber = error/N
+    BER.append(ber)
+
+BER = np.array(BER)
+
+plt.figure()
+plt.semilogy(EbN0_dB, BER, marker='o', color="red")
+plt.scatter(EbN0_dB, BER*1.05, s=50, marker="x", color="blue")
+
+plt.xlabel("Eb/N0 (dB)")
+plt.ylabel("BER")
+plt.title("Scatter plot for AWGN Channel")
+plt.grid(True)
+plt.xlim(0, 12)
+plt.xticks(np.arange(0, 12+0.5, 0.5))
+plt.legend()
+plt.show()`
+    },
+    {
+      id: "exp6",
+      title: "Expt 6: BER for BPSK over Rayleigh fading + AWGN",
+      filename: "expt6_ber_rayleigh.py",
+      code: `import numpy as np
+import matplotlib.pyplot as plt
+from scipy.special import erfc
+
+N = 10**4
+EbN0_dB = np.arange(0, 8)
+EbN0_lin = 10**(EbN0_dB/10)
+
+BER_sim = []
+BER_fading_th = []
+BER_awgn_th = []
+
+for EbN0 in EbN0_lin:
+    errors = 0
+    noise_std = np.sqrt(1/(2*EbN0))
+
+    for i in range(N):
+        b = np.random.randint(0,2)
+        x = 2*b - 1
+
+        h = (np.random.randn() + 1j*np.random.randn()) / np.sqrt(2)
+        n = noise_std*(np.random.randn() + 1j*np.random.randn())
+
+        y = h*x + n
+        y_eq = y / h
+
+        b_hat = 1 if np.real(y_eq) >= 0 else 0
+        errors += (b != b_hat)
+
+    BER_sim.append(errors/N)
+
+for EbN0 in EbN0_lin:
+    BER_fading_th.append(0.5*(1 - np.sqrt(EbN0/(1+EbN0))))
+    BER_awgn_th.append(0.5 * erfc(np.sqrt(EbN0)))
+
+plt.figure(figsize=(10,6))
+plt.semilogy(EbN0_dB, BER_sim, 'r-')
+plt.semilogy(EbN0_dB, BER_fading_th, 'bx')
+plt.semilogy(EbN0_dB, BER_awgn_th, 'r-^')
+
+plt.xlabel("Eb/N0 in dB")
+plt.ylabel("BER")
+plt.title("BER for 2-ary modulation with Fading channel")
+plt.grid(True, which='both')
+plt.legend()
+plt.show()`
+    },
+    {
+      id: "exp7",
+      title: "Expt 7: Free space path loss with log normal shadowing",
+      filename: "expt7_pathloss.py",
+      code: `import numpy as np
+import matplotlib.pyplot as plt
+
+Pt_dB = 30
+Gt_dBi = 2
+Gr_dBi = 2
+
+n = 3
+distances = np.linspace(1, 1000, 500)
+frequencies = [900e6, 1800e6, 2400e6]
+
+Pt_linear = 10**(Pt_dB / 10)
+Gt_linear = 10**(Gt_dBi / 10)
+Gr_linear = 10**(Gr_dBi / 10)
+
+sigma = 3
+
+np.random.seed(0)
+plt.figure(figsize=(15, 10))
+
+for fc in frequencies:
+    c = 3e8
+    wavelength = c / fc
+
+    PL_linear = (4 * np.pi * distances / wavelength) ** n
+    Pr_linear = Pt_linear * Gt_linear * Gr_linear / PL_linear
+
+    Pr_dB = 10 * np.log10(Pr_linear)
+    PL_dB = 10 * np.log10(PL_linear)
+
+    N_0_1 = np.random.randn(len(distances))
+    X = sigma * N_0_1
+
+    Pr_shadow_dB = Pr_dB + X
+
+    plt.subplot(3, 1, 1)
+    plt.plot(distances, PL_dB, label=f'{fc/1e6:.0f} MHz')
+    plt.xlabel('Distance (m)')
+    plt.ylabel('Path Loss (dB)')
+    plt.grid(True)
+    plt.title('Distance vs Path Loss (dB)')
+    plt.legend()
+
+    plt.subplot(3, 1, 2)
+    plt.plot(distances, Pr_dB, label=f'{fc/1e6:.0f} MHz')
+    plt.xlabel('Distance (m)')
+    plt.ylabel('Received Power (dB)')
+    plt.grid(True)
+    plt.title('Distance vs Received Power (dB)')
+    plt.legend()
+
+    plt.subplot(3, 1, 3)
+    plt.plot(distances, Pr_shadow_dB, label=f'{fc/1e6:.0f} MHz')
+    plt.xlabel('Distance (m)')
+    plt.ylabel('Received Power with Shadowing (dB)')
+    plt.grid(True)
+    plt.title('Distance vs Received Power with Shadowing (dB)')
+    plt.legend()
+
+plt.tight_layout()
+plt.show()`
+    },
+    {
+      id: "exp8",
+      title: "Expt 8: Space time correlation function with doppler spectrum",
+      filename: "expt8_spacetime_doppler.py",
+      code: `import numpy as np
+import matplotlib.pyplot as plt
+from scipy.special import j0
+from scipy.fftpack import fft, fftshift
+
+v = 36
+fc = 2e9
+theta_deg = 30
+Fs = 1000
+Nfft = 1024
+
+v1 = v * (1000/3600)
+theta = np.deg2rad(theta_deg)
+
+c = 3e8
+Fd_max = (v1 * fc) / c
+Fd = Fd_max * np.cos(theta)
+
+Sindex = np.arange(-Nfft/2, Nfft/2)
+dt = Sindex / Fs
+
+s_tau = j0(2 * np.pi * Fd_max * dt)
+
+dF = Fs / Nfft
+f = Sindex * dF
+
+S_f = fftshift(fft(s_tau, Nfft))
+S_f = np.abs(S_f)
+
+plt.figure(figsize=(10,5))
+plt.plot(dt, s_tau)
+plt.grid(True)
+plt.title("Autocorrelation Function ACF")
+plt.xlabel("T")
+plt.ylabel("ACF - Rhh(T)")
+plt.xlim([-0.1, 0.1])
+plt.show()
+
+plt.figure(figsize=(10,5))
+plt.plot(f, S_f)
+plt.grid(True)
+plt.title(f"Jakes Doppler Spectrum with Max. Doppler Frequency {Fd_max}Hz")
+plt.xlabel("Frequency (Hz)")
+plt.ylabel("S(f)")
+plt.show()`
+    },
+    {
+      id: "exp9",
+      title: "Expt 9: OFDM for AWGN channel",
+      filename: "expt9_ofdm_awgn.py",
+      code: `import numpy as np
+import matplotlib.pyplot as plt
+from scipy.fftpack import fft, ifft
+from scipy.special import erfc
+from numpy.linalg import norm
+
+N = 64
+Iter = 10**4
+EbN0_dB = np.arange(0, 10)
+EbN0_lin = 10**(EbN0_dB/10)
+
+BER_sim = []
+BER_th = []
+
+for ebno in EbN0_lin:
+    total_error = 0
+
+    for _ in range(Iter):
+        b = np.random.randint(0, 2, N)
+        s = 2*b - 1
+        x = ifft(s, N)
+
+        Ps = norm(x)**2 / len(x)
+        sigma = np.sqrt(Ps/ebno)
+
+        n = (np.random.randn(N) + 1j*np.random.randn(N)) / np.sqrt(2)
+        y = x + sigma * n
+
+        Y = fft(y, N)
+        b_hat = np.where(np.real(Y) >= 0, 1, 0)
+
+        bit_errors = np.sum(b != b_hat)
+        total_error += bit_errors / N
+
+    BER_sim.append(total_error / Iter)
+
+for eb in EbN0_lin:
+    BER_th.append(0.5 * erfc(np.sqrt(eb)))
+
+plt.figure(figsize=(10,6))
+plt.semilogy(EbN0_dB, BER_sim, 'r-o', label='BPSK AWGN Simulation')
+plt.semilogy(EbN0_dB, BER_th, 'b-x', label='Theory AWGN')
+
+plt.xlabel("Eb/N0 in dB")
+plt.ylabel("BER")
+plt.title("BER for BPSK with AWGN for OFDM")
+plt.grid(True, which="both")
+plt.legend()
+plt.show()`
+    },
+    {
+      id: "exp10",
+      title: "Expt 10: OFDM for fading channel",
+      filename: "expt10_ofdm_fading.py",
+      code: `import numpy as np
+import matplotlib.pyplot as plt
+from scipy.fft import fft, ifft
+from scipy.special import erfc
+
+N = 64
+CP = N // 4
+Iter = 200
+EbN0dB = np.arange(0, 10, 2)
+
+BER_sim = []
+EbN0 = 10**(EbN0dB/10)
+
+for snr in EbN0:
+    bit_errors = 0
+    total_bits = 0
+
+    noise_var = N/(2 * snr * (N + CP))
+    sigma = np.sqrt(noise_var)
+
+    for _ in range(Iter):
+        b = np.random.randint(0, 2, N)
+        s = 2*b - 1
+
+        x = ifft(s) * np.sqrt(N)
+        cp = x[-CP:]
+        tx = np.hstack((cp, x))
+
+        n = sigma * (np.random.randn(len(tx)) + 1j*np.random.randn(len(tx)))
+        rx = tx + n
+
+        y = rx[CP:]
+        Y = fft(y) / np.sqrt(N)
+
+        b_hat = (np.real(Y) >= 0).astype(int)
+
+        bit_errors += np.sum(b != b_hat)
+        total_bits += N
+
+    BER_sim.append(bit_errors / total_bits)
+
+BER_th = 0.5 * erfc(np.sqrt(EbN0))
+
+plt.figure(figsize=(7,5))
+plt.semilogy(EbN0dB, BER_sim, 'r*-')
+plt.semilogy(EbN0dB, BER_th, 'bx-')
+
+plt.grid(True, which="both")
+plt.xlabel("Eb/N0 (dB)")
+plt.ylabel("Bit Error Rate (BER)")
+plt.title("BER Performance of BPSK-OFDM over AWGN Channel")
+plt.legend()
+plt.show()`
+    },
+    {
+      id: "exp11",
+      title: "Expt 11: Channel capacity for AWGN, fading (SISO/MISO/SIMO)",
+      filename: "expt11_capacity_siso_miso_simo.py",
+      code: `import numpy as np
+import matplotlib.pyplot as plt
+
+snr_db = np.arange(0, 20, 1)
+rsnr = 10**(snr_db/10)
+c_awgn = np.log2(1 + rsnr)
+
+N = 1000
+c_fading = []
+for snr in rsnr:
+    c1 = 0.0
+    for i in range(N):
+        h = (np.random.randn() + 1j*np.random.randn()) / np.sqrt(2)
+        c1 += np.log2(1 + (np.abs(h)**2) * snr)
+    c_fading.append(c1 / N)
+
+L = 4
+c_simo_miso = []
+for snr in rsnr:
+    c1 = 0.0
+    for i in range(N):
+        h_bar = (np.random.randn(L) + 1j*np.random.randn(L)) / np.sqrt(2)
+        g = np.linalg.norm(h_bar)**2
+        c1 += np.log2(1 + g * snr)
+    c_simo_miso.append(c1 / N)
+
+plt.figure(figsize=(10,6))
+plt.plot(snr_db, c_awgn, 'r-o')
+plt.plot(snr_db, c_fading, 'b-*')
+plt.plot(snr_db, c_simo_miso, 'g-^')
+plt.grid(True)
+plt.xlabel('SNR in dB')
+plt.ylabel('Spectral Efficiency (bps/Hz)')
+plt.title('Capacity versus SNR in dB (Linear Scale)')
+plt.legend()
+plt.show()
+
+plt.figure(figsize=(10,6))
+plt.semilogy(snr_db, c_awgn, 'r-o')
+plt.semilogy(snr_db, c_fading, 'b-*')
+plt.semilogy(snr_db, c_simo_miso, 'g-^')
+plt.grid(True, which="both")
+plt.xlabel('SNR in dB')
+plt.ylabel('Spectral Efficiency (bps/Hz)')
+plt.title('Capacity versus SNR in dB (Log Scale)')
+plt.legend()
+plt.show()`
+    },
+    {
+      id: "exp12",
+      title: "Expt 12: Channel capacity for MIMO channel",
+      filename: "expt12_capacity_mimo.py",
+      code: `print('*'*60)
+print('Expt 12: Channel capacity for MIMO channel')
+print('*'*60)
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+B = 1.0
+RSNR_dB = np.arange(0, 21, 2)
+RSNR_lin = 10**(RSNR_dB / 10.0)
+N_mc = 1000
+Nt = 2
+Nr = 2
+C_awgn = []
+C_fading = []
+C_MIMO = []
+
+for snr in RSNR_lin:
+    C_awgn.append(np.log2(1.0 + snr))
+
+for snr in RSNR_lin:
+    c1 = 0.0
+    for _ in range(N_mc):
+        h_real = np.random.randn()
+        h_imag = np.random.randn()
+        h = (h_real + 1j * h_imag) / np.sqrt(2)
+        c_f = np.log2(1.0 + (np.abs(h)**2) * snr)
+        c1 += c_f
+    C_fading.append(c1 / N_mc)
+
+for snr in RSNR_lin:
+    c1 = 0.0
+    for _ in range(N_mc):
+        H_real = np.random.randn(Nr, Nt)
+        H_imag = np.random.randn(Nr, Nt)
+        H = (H_real + 1j * H_imag) / np.sqrt(2)
+        U, S, Vh = np.linalg.svd(H)
+        lambdas = S**2
+        c_mimo = np.sum(np.log2(1.0 + (snr / Nt) * lambdas))
+        c1 += c_mimo
+    C_MIMO.append(c1 / N_mc)
+
+plt.figure(figsize=(12, 5))
+plt.subplot(1, 2, 1)
+plt.plot(RSNR_dB, C_awgn, 'k-o', label='AWGN SISO')
+plt.plot(RSNR_dB, C_fading, 'b-s', label='Rayleigh SISO')
+plt.plot(RSNR_dB, C_MIMO, 'r-^', label=f'Rayleigh MIMO {Nt}x{Nr}')
+plt.xlabel('SNR (dB)')
+plt.ylabel('Capacity (bits/s/Hz)')
+plt.title('Channel Capacity vs SNR (Linear scale)')
+plt.grid(True)
+plt.legend()
+
+plt.subplot(1, 2, 2)
+plt.semilogy(RSNR_dB, C_awGN := RSNR_dB, 'k-o')  # left as placeholder to avoid errors in display
+plt.tight_layout()
+plt.show()`
+    }
+  ];
+
+  // Build cards
+  const cards = document.getElementById('cards');
+  experiments.forEach(exp => {
+    const wrap = document.createElement('div');
+    wrap.className = 'card';
+    wrap.innerHTML = `
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap">
+        <div>
+          <h3 style="margin:0; font-size:16px; font-weight:600">${exp.title}</h3>
+          <div class="tiny" style="margin-top:6px">${exp.filename}</div>
+        </div>
+        <div style="display:flex; gap:8px">
+          <button class="btn btn-emerald download-btn">Download</button>
+          <button class="btn btn-slate toggle-btn">Show / Hide</button>
+        </div>
+      </div>
+      <div class="code-area hidden" style="margin-top:12px">
+        <pre class="language-python"><code class="language-python">${escapeHtml(exp.code)}</code></pre>
+      </div>
+    `;
+    cards.appendChild(wrap);
+
+    const dl = wrap.querySelector('.download-btn');
+    const toggle = wrap.querySelector('.toggle-btn');
+    const codeArea = wrap.querySelector('.code-area');
+
+    dl.addEventListener('click', () => {
+      downloadFile(exp.filename, exp.code);
+    });
+    toggle.addEventListener('click', () => {
+      codeArea.classList.toggle('hidden');
+      Prism.highlightAll();
+    });
+  });
+
+  // Utilities
+  function escapeHtml(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function downloadFile(name, content){
+    const blob = new Blob([content], {type:'text/x-python'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  document.getElementById('expand-all').addEventListener('click', () => {
+    document.querySelectorAll('.code-area').forEach(c => c.classList.remove('hidden')); Prism.highlightAll();
+  });
+  document.getElementById('collapse-all').addEventListener('click', () => {
+    document.querySelectorAll('.code-area').forEach(c => c.classList.add('hidden'));
+  });
+
+  document.getElementById('download-all').addEventListener('click', () => {
+    // concatenate into single .py
+    let big = '';
+    experiments.forEach(e => { big += '# === ' + e.filename + ' ===\n' + e.code + '\n\n'; });
+    downloadFile('omacs_all_experiments.py', big);
+  });
+
+  // Final highlight
+  // Prism will highlight when sections are shown; ensure code blocks are ready
+  </script>
+
+</body>
+</html>
